@@ -16,24 +16,25 @@ from dataclasses import dataclass
 # merges: the list storing the merged bytes, built to help the vocab
 # indices: only store the token_id, make it easy to merge because it only needs adjacent token_id
 
-
-def merge(indices:list[int], pair:tuple[int,int], new_index:int)->list[int]:
+# need to be updated for updating the freq_table rather than indices
+def merge(freq_table:dict[tuple[int,...],int], pair:tuple[int,int], new_index:int)->dict[tuple[int,...],int]:
     
     # given the most frequent pairs and get the new indices
     # indices is about the index of bytes in the vocabulary, merge functions 
     # as updating the new index of the merged tokens
-    new_indices = []
-
-    i = 0
-    while i in range(len(indices)):
-        if i+1 < len(indices) and indices[i] == pair[0] and indices[i+1] == pair[1]:
-            new_indices.append(new_index)
-            i+=2# skipping two index because they are merged already
-        else:
-            new_indices.append(indices[i])
-            i+=1 # with for loop, i in for loop won't be updated
+    new_freq_table = {}
+    
+    for key in freq_table:
+        i = 0
+        while i in range(len(key)):
+            if i+1 in range(len(key)) and key[i] == pair[0] and key[i+1] == pair[1]:
+                new_key = key[:i] + (new_index,) + key[i+2:] #get the new key by connecting them
+                new_freq_table[new_key] = freq_table[key]
+                i+=2
+            else:
+                i+=1
          
-    return new_indices
+    return new_freq_table
 
 def pretokenize(text: str, special_tokens: list[str]) -> dict[tuple[bytes,...],int]:
     # remove the special tokens and do pre-tokenization
@@ -109,10 +110,16 @@ def train_bpe(
     
     freq_table = pretokenize(string,special_tokens)
     # pretokenize the text and get the dict
-    # need to change the code below the ensure they all accept the freq_table dict
+    # need to be changed into dict[tuple(int,...),int] to better fit the whole process
+    
+    for key in freq_table:
+        for i in len(key):
+            key[i] = key[i][0]
+    
 
-    indices = list(map(int,string.encode('utf-8')))# encoding the text into bytes and then map it into int
-    # need to be clarified about the function of input_path
+    #indices = list(map(int,string.encode('utf-8')))# encoding the text into bytes and then map it into int
+    #it's not needed because we can simply use the freq_table to count and gain the frequency
+    
     merges: list[tuple[bytes,bytes]] = []
     vocab : dict[int,bytes] = {x:bytes([x]) for x in range(256)}  
     #initialize the vocab by utf-8 and dict comprehension
@@ -128,12 +135,12 @@ def train_bpe(
     n = vocab_size - v # it changes so it cannot be used directly
     for i in range(n):
         # merge the frequncy pairs by n times
-        pairs = countAdjacent(indices)
+        pairs = countAdjacent(freq_table)
         pair = max(pairs,key=lambda k: (pairs[k], vocab[k[0]] + vocab[k[1]]))# comparing the bytes rather than the token id
         # return the most frequent one and break the tie by loxic order by lambda method
 
         new_index = v+i
-        indices = merge(indices,pair,new_index)
+        freq_table = merge(freq_table,pair,new_index)
         # gain the new_indices by the merge function
 
         merges.append((vocab[pair[0]],vocab[pair[1]]))
@@ -144,11 +151,16 @@ def train_bpe(
     return vocab,merges
 
 
-def countAdjacent(indices:list[int])->dict[tuple[int,int],int]:
+def countAdjacent(freq_table:dict[tuple[bytes,...],int])->dict[tuple[int,int],int]:
     i = 0
     pairs = defaultdict(int)
-    for i in range(len(indices)-1):
-        pairs[(indices[i],indices[i+1])] += 1
+    for key in freq_table:
+        if len(key) > 1:
+            for i in range(len(key)-1):
+                # can only be used to 
+                pairs[key[i],key[i+1]] += freq_table[key] 
+        else:
+            continue
         
     return dict(pairs) # transform pairs from defaultdict to dict
 

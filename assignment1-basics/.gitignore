@@ -6,6 +6,7 @@
 
 # Keep the student's notes.
 !readme1.md
+!readme2.md
 
 # Allow entering source directories needed for unignore rules.
 !cs336_basics/
