@@ -7,10 +7,11 @@
 # Keep the student's notes.
 !readme1.md
 !readme2.md
+!tokenizer1.md
 
 # Allow entering source directories needed for unignore rules.
 !cs336_basics/
 
 # Keep the student's implementation file.
 !cs336_basics/train_bpe.py
-
+!cs336_basics/tokenizer.py
