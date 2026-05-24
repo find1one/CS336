@@ -1,4 +1,6 @@
 import regex as re
+from collections.abc import Iterable, Iterator
+import pickle
 
 #pretokenize the text by 
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
@@ -8,7 +10,7 @@ def pretokenize_encode(
                     )->list[str]:
     sequences = []
 
-    special_pat = "|".join(re.escape(tok) for tok in special_tokens)
+    special_pat = "|".join(re.escape(tok) for tok in sorted(special_tokens, key=len, reverse=True))
 
     if special_pat == "":# do not spilt the text by ""
          parts = [text] # tranform str to list[str]
@@ -17,8 +19,10 @@ def pretokenize_encode(
          parts = re.split(f"({special_pat})",text)# f "({})" keep teh special tokens
 
     for part in parts: # part:str
-        if part == "" or part in special_tokens:
+        if part == "":
             continue
+        elif part in special_tokens:
+            sequences.append(part)
         else: # only deal with the normal text
             for match in re.finditer(PAT,part):
                 pretoken = match.group() #pretoken:str
@@ -39,7 +43,7 @@ class Tokenizer:
             self.merges = merges
             self.special_tokens = [] if special_tokens is None else special_tokens
             self.bytes_to_id = {token_bytes: token_id for token_id,token_bytes in vocab.items()} 
-            self.merge_rank = {pair:rank for pair, rank in enumerate(merges)}# can be used to do dict lookup in O(1)
+            self.merge_rank = {pair:rank for rank,pair in enumerate(merges)}# can be used to do dict lookup in O(1)
 
             # update self.vocab and self.bytes_to_id with the special_tokens
             for token in self.special_tokens:
@@ -61,6 +65,13 @@ class Tokenizer:
             ):
             
         
+        with open(vocab_filepath,"rb") as f:
+            vocab = pickle.load(f)
+
+        with open(merges_filepath,"rb") as f:
+            merges = pickle.load(f)
+
+        return cls(vocab,merges,special_tokens)
 
     def encode(self,text:str)->list[int]:
         # in each sequence earned from pretokenize, merge them first by the earned merges
@@ -77,30 +88,48 @@ class Tokenizer:
 
             if token not in self.special_tokens:# faster than iterate in vocab
                 # merge in the token by looking up the merge_rank
-                token2 = tuple(bytes([k]) for k in token.encode("utf-8")) # str to bytes tuple
+                token2 = [bytes([k]) for k in token.encode("utf-8")] # str to bytes list because tuple cannot be modified
                 
-                i = 0
+                while True:
+                    best_pair = None
+                    best_rank = float("inf")
+                    i = 0
 
-                while i in range(len(token)):# loop of merge inside the bytes tuple, avoid break the border
-                    token3 = ()# store the merged bytes tuple
-                    if i+1 in range(len(token)):
-                        if (token2[i],token2[i+1]) in self.merge_rank:
-                            token3 += (token2[i]+token2[i+1],)
+                    for pair in zip(token2,token2[1:]):# find the smallest rank pair in token2 to merge
+                        if pair in self.merge_rank and self.merge_rank[pair]< best_rank:
+                            best_rank = self.merge_rank[pair]
+                            best_pair = pair
+                    
+                    if best_pair == None:
+                        break
+
+                    new_token = []
+                    while i in range(len(token2)):
+                        if i+1 in range(len(token2)) and (token2[i],token2[i+1]) == best_pair:
+                            new_token.append(token2[i]+token2[i+1])
                             i+=2
                         else:
-                            token3 += (token[i],)
-                    else:
-                        token3 += (token[i],)
+                            new_token.append(token2[i])
+                            i+=1
+
+                    token2 = new_token
                 
-                for tup in token3:# bytes of tuple(bytes,...)
+
+                for tup in token2:# bytes of list(bytes,...)
                     res.append(self.bytes_to_id[tup])#bytes to token_id
                 
 
             else:#convert the special tokens to token_id by self.vocab
-                res.append(self.bytes_to_id(token.encode("utf-8")))# token:str -> bytes and bytes to id
+                res.append(self.bytes_to_id[token.encode("utf-8")])# token:str -> bytes and bytes to id
 
         return res
 
     def encode_iterable(self, iterable: Iterable[str])->Iterator[int]:
+        for text in iterable:
+            for token_id in self.encode(text):
+                yield token_id# use yield to return Iterator[int]
 
     def decode(self, ids:list[int]) -> str:
+        byte_string = b"".join(self.vocab[i] for i in ids)
+        text = byte_string.decode("utf-8",errors='replace')
+        return text
